@@ -2,42 +2,52 @@ version: '3.8'
 
 services:
   db:
-    image: postgres:13
+    image: postgres:15
     environment:
       POSTGRES_DB: todo
       POSTGRES_USER: todo
       POSTGRES_PASSWORD: todo
     volumes:
-      - postgres_data:/var/lib/postgresql/data/
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U todo"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
-    image: redis:6
-
-  django:
-    build: .
-    command: >
-      sh -c "python manage.py migrate &&
-             python manage.py runserver 0.0.0.0:8000"
+    image: redis:7
+    command: redis-server --save 60 1 --loglevel warning
     volumes:
-      - .:/app
-    environment:
-      - POSTGRES_HOST=db
-      - POSTGRES_NAME=todo
-      - POSTGRES_USER=todo
-      - POSTGRES_PASSWORD=todo
-      - REDIS_URL=redis://redis:6379/0
+      - redis_data:/data
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    volumes:
+      - ./backend:/app
+    env_file:
+      - .env
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     ports:
       - "8000:8000"
 
-  celery:
-    build: .
-    command: celery -A config worker -l info
+  bot:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    env_file:
+      - .env
     depends_on:
-      - django
+      - backend
       - redis
+    restart: unless-stopped
 
 volumes:
   postgres_data:
+  redis_data:
